@@ -326,3 +326,222 @@ The Prewitt operator provides first-order accuracy in gradient estimation, with 
 3. NVIDIA CUDA Programming Guide
 4. OpenCV Documentation
 
+# CUDA-Accelerated Canny Edge Detection
+
+## Overview
+This project implements the Canny edge detection algorithm using CUDA for GPU acceleration. Developed by John F. Canny in 1986, this algorithm remains the state-of-the-art edge detection method, known for its ability to detect edges with low error rates and precise localization.
+
+## The Canny Edge Detection Algorithm
+
+### Key Features
+- Optimal edge detection using multiple stages
+- Low error rate (minimal false edges)
+- Good edge localization (minimal distance between detected and actual edges)
+- Minimal response (only one response per edge)
+
+### Stages of the Algorithm
+
+#### 1. Noise Reduction
+- Gaussian filtering to remove noise
+- Uses 5x5 Gaussian kernel
+- Formula for 2D Gaussian:
+```
+G(x,y) = (1/(2π σ²)) * e^(-(x² + y²)/(2σ²))
+```
+
+#### 2. Gradient Calculation
+- Computes intensity gradients using Sobel operator
+- Finds both magnitude and direction
+- Formulas:
+```
+Magnitude = √(Gx² + Gy²)
+Direction = arctan(Gy/Gx)
+```
+
+#### 3. Non-Maximum Suppression
+- Ensures edges are thin (one pixel wide)
+- Preserves only local maxima
+- Compares pixel with neighbors along gradient direction
+
+#### 4. Double Thresholding
+- Identifies strong, weak, and non-relevant pixels
+- Uses two thresholds: high and low
+- Classification:
+  * Strong edges: > high threshold
+  * Weak edges: between thresholds
+  * Non-edges: < low threshold
+
+#### 5. Edge Tracking by Hysteresis
+- Finalizes edge detection
+- Connects weak edges to strong edges
+- Suppresses isolated weak edges
+- Uses 8-connectivity analysis
+
+## CUDA Implementation Details
+
+### Memory Management
+```cpp
+class CannyEdgeDetector {
+private:
+    unsigned char *d_input;     // Input image
+    float *d_gaussian;          // After Gaussian blur
+    float *d_magnitude;         // Gradient magnitude
+    float *d_direction;         // Gradient direction
+    unsigned char *d_suppressed;// After non-max suppression
+    unsigned char *d_output;    // Final output
+};
+```
+
+### Kernel Specifications
+
+#### 1. Gaussian Blur Kernel
+```cpp
+// 5x5 Gaussian kernel with σ = 1.4
+const float kernel[5][5] = {
+    {0.003765, 0.015019, 0.023792, 0.015019, 0.003765},
+    {0.015019, 0.059912, 0.094907, 0.059912, 0.015019},
+    {0.023792, 0.094907, 0.150342, 0.094907, 0.023792},
+    {0.015019, 0.059912, 0.094907, 0.059912, 0.015019},
+    {0.003765, 0.015019, 0.023792, 0.015019, 0.003765}
+};
+```
+
+#### 2. Sobel Gradient Kernels
+```cpp
+// Horizontal Gradient (Gx)
+[-1  0  1]
+[-2  0  2]
+[-1  0  1]
+
+// Vertical Gradient (Gy)
+[-1 -2 -1]
+[ 0  0  0]
+[ 1  2  1]
+```
+
+### Optimization Techniques
+
+#### 1. Memory Coalescing
+- Aligned memory access patterns
+- Sequential thread access to sequential memory
+
+#### 2. Thread Organization
+- Block size: 16x16 threads
+- Grid size: Calculated based on image dimensions
+```cpp
+dim3 blockSize(16, 16);
+dim3 gridSize((width + 15)/16, (height + 15)/16);
+```
+
+#### 3. Shared Memory Usage
+- Reduces global memory access
+- Improves kernel performance
+
+## Performance Analysis
+
+### Computational Complexity
+For an image of size M×N:
+1. Gaussian Blur: O(M×N)
+2. Gradient Calculation: O(M×N)
+3. Non-Maximum Suppression: O(M×N)
+4. Double Thresholding: O(M×N)
+5. Hysteresis: O(M×N)
+
+### Memory Requirements
+- Input Image: width × height bytes
+- Intermediate Buffers: 
+  * Gaussian: width × height × 4 bytes
+  * Magnitude: width × height × 4 bytes
+  * Direction: width × height × 4 bytes
+- Output Image: width × height bytes
+
+### GPU Occupancy
+- Theoretical occupancy: 100%
+- Actual occupancy varies based on:
+  * Register usage
+  * Shared memory usage
+  * Thread block size
+
+## Usage
+
+### Prerequisites
+- NVIDIA GPU with CUDA support
+- CUDA Toolkit (≥ 11.0)
+- OpenCV 4.x
+- C++11 compatible compiler
+
+### Building the Project
+```bash
+make
+```
+
+### Running the Application
+```bash
+./bin/canny
+```
+
+### Parameters
+- Low Threshold: 30 (default)
+- High Threshold: 90 (default)
+- Can be modified in code or made dynamic
+
+## Technical Details
+
+### Input Requirements
+- Format: RGB or Grayscale
+- Bit Depth: 8-bit per channel
+- Size: Any (limited by GPU memory)
+
+### Output Format
+- 8-bit single channel image
+- Binary edges (255 for edge, 0 for non-edge)
+
+### Error Handling
+- CUDA error checking using macros
+- OpenCV error handling
+- Memory allocation checks
+
+## Mathematical Foundation
+
+### Gaussian Smoothing
+```
+G(x,y) = (1/(2πσ²))e^(-(x² + y²)/(2σ²))
+```
+
+### Gradient Calculation
+```
+Magnitude = √(Gx² + Gy²)
+Direction = arctan(Gy/Gx)
+```
+
+### Non-Maximum Suppression
+1. Round angle to nearest 45°
+2. Compare with neighbors along gradient
+3. Suppress non-maximal values
+
+### Double Thresholding
+```
+if (pixel > highThreshold) pixel = STRONG_EDGE
+else if (pixel < lowThreshold) pixel = NON_EDGE
+else pixel = WEAK_EDGE
+```
+
+## Best Practices
+
+### Parameter Selection
+1. Gaussian σ: 1.4 (default)
+2. Low Threshold: ~0.1 * maximum gradient
+3. High Threshold: ~0.3 * maximum gradient
+
+### Performance Optimization
+1. Use appropriate block sizes
+2. Minimize memory transfers
+3. Utilize shared memory when possible
+4. Consider stream processing for large images
+
+## References
+1. Canny, J., "A Computational Approach to Edge Detection," IEEE Trans. Pattern Analysis and Machine Intelligence, 1986
+2. NVIDIA CUDA Programming Guide
+3. OpenCV Documentation
+4. Digital Image Processing, Gonzalez & Woods
+
